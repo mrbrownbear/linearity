@@ -97,9 +97,9 @@ html = re.sub(r'<meta[^>]+http-equiv=["\']Content-Security-Policy["\'][^>]*>', '
 
 # Strip tracking tags and any credential-like strings from public captured text.
 html = re.sub(r'<(?:script|iframe|img)[^>]+(?:googletagmanager|google-analytics|hotjar|hubspot|cookiebot|lemlist|clarity)[^>]*>(?:</script>)?', '', html, flags=re.I)
-html = re.sub(r'<script\\s+type=[\"\\\']importmap[\"\\\'][^>]*>.*?</script>', '', html, flags=re.I|re.S)
+html = re.sub(r'<script\s+type=["\']importmap["\'][^>]*>.*?</script>', '', html, flags=re.I|re.S)
 html = html.replace('<script src=\"/__sitecloner/runtime.js\"></script>', '')
-html = re.sub(r'<link[^>]+rel=[\"\\\']prefetch[\"\\\'][^>]+as=[\"\\\']script[\"\\\'][^>]*>', '', html, flags=re.I)
+html = re.sub(r'<link[^>]+rel=["\']prefetch["\'][^>]+as=["\']script["\'][^>]*>', '', html, flags=re.I)
 html = html.replace('/textures/ldr_rgb1_0.png','/__sitecloner/pixel.svg').replace('/textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg')
 font_replacements = {
     '400': '/fonts/FFF-AcidGrotesk-Regular.woff2',
