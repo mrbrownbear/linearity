@@ -171,8 +171,8 @@ print('site files before cleanup:',sum(1 for p in ROOT.rglob('*') if p.is_file()
 
 # Remove the one-time importer from the final tree.
 shutil.rmtree(BOOT, ignore_errors=True)
-wf=ROOT/'.github/workflows/bootstrap.yml'
-if wf.exists(): wf.unlink()
+for wf in [ROOT/'.github/workflows/bootstrap.yml', ROOT/'.github/workflows/scan.yml']:
+    if wf.exists(): wf.unlink()
 for d in [ROOT/'.github/workflows',ROOT/'.github']:
     try:d.rmdir()
     except OSError:pass
