@@ -1,1 +1,1 @@
-/* external runtime request intentionally blocked */
+/* intentionally local-blocked external script */
