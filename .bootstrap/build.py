@@ -27,10 +27,10 @@ def download(item):
     dest = ROOT / item['path']
     dest.parent.mkdir(parents=True, exist_ok=True)
     last = None
-    for attempt in range(2):
+    for attempt in range(1):
         try:
             req = Request(item['url'], headers={'User-Agent': UA, 'Accept': '*/*'})
-            with urlopen(req, timeout=15) as r:
+            with urlopen(req, timeout=8) as r:
                 data = r.read()
             if not data:
                 raise RuntimeError('empty response')
@@ -48,7 +48,7 @@ def download(item):
 
 failures = []
 total = 0
-with ThreadPoolExecutor(max_workers=10) as pool:
+with ThreadPoolExecutor(max_workers=40) as pool:
     futs = [pool.submit(download, x) for x in resources]
     for i, fut in enumerate(as_completed(futs), 1):
         path, n, err = fut.result()
