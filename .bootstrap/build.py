@@ -165,7 +165,23 @@ if tex.exists(): tex.unlink()
 (ROOT/'vercel.json').write_text(json.dumps({'cleanUrls':False,'headers':[{'source':'/(.*)','headers':[{'key':'X-Content-Type-Options','value':'nosniff'},{'key':'Referrer-Policy','value':'no-referrer'}]}]},indent=2)+'\n')
 (ROOT/'README.md').write_text('# Linearity local static capture\n\nAll runtime assets are served from this repository. Third party telemetry and external runtime resource calls are blocked.\n')
 
-for fp in [ROOT/'_nuxt/Icon.vue_vue_type_script_setup_true_lang.e2c639e13294a0e1a85e1a6aa262253c7955050d.js',ROOT/'_nuxt/entry.e2c639e13294a0e1a85e1a6aa262253c7955050d.js',ROOT/'index.html']:
+flagged=[ROOT/'_nuxt/Icon.vue_vue_type_script_setup_true_lang.e2c639e13294a0e1a85e1a6aa262253c7955050d.js',ROOT/'_nuxt/entry.e2c639e13294a0e1a85e1a6aa262253c7955050d.js',ROOT/'index.html']
+flag_texts=[p.read_text('utf-8',errors='ignore') for p in flagged if p.exists()]
+if len(flag_texts)==3:
+    cand_sets=[set(re.findall(r'[A-Za-z0-9._-]{80,}',t)) for t in flag_texts]
+    common=set.intersection(*cand_sets)
+    common={x for x in common if len(x)>=80}
+    print('COMMON_SECRET_CANDIDATES',len(common),'lengths',sorted({len(x) for x in common}))
+    if common:
+        for p in list(ROOT.rglob('*')):
+            if not p.is_file() or p.suffix.lower() not in TEXT_EXT: continue
+            try: s=p.read_text('utf-8')
+            except: continue
+            o=s
+            for x in common: s=s.replace(x,'shared_secret_removed')
+            if s!=o: p.write_text(s,'utf-8')
+
+for fp in flagged:
     if fp.exists():
         dt=fp.read_text('utf-8',errors='ignore')
         print('SECRET_DIAG',fp.as_posix(),'ghs_literal',dt.lower().count('ghs_'),'ghs_pattern',len(re.findall(r'ghs_[A-Za-z0-9.\\-_]{36,}',dt,re.I)),'jwt_pattern',len(re.findall(r'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',dt)))
