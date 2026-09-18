@@ -1,0 +1,36 @@
+name: Fresh Linearity homepage capture
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fresh-homepage.yml"
+      - ".github/scripts/fresh_homepage.py"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linearity-fresh-homepage
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install Playwright
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          python -m playwright install chromium
+
+      - name: Capture and push homepage
+        run: python .github/scripts/fresh_homepage.py
