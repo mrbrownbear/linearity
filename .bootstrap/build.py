@@ -90,6 +90,7 @@ for texname in ['textures/ldr_rgb1_0.png','textures/LDR_RGB1_0.png']:
     tex=ROOT/texname
     if tex.exists(): tex.unlink()
 
+html = (ROOT / 'index.html').read_text('utf-8', errors='ignore')
 # Strict local-only CSP. Navigation can remain internal but resource/network calls cannot leave origin.
 csp = "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
 if 'Content-Security-Policy' not in html:
