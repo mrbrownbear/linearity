@@ -101,6 +101,18 @@ html = re.sub(r'<script\\s+type=[\"\\\']importmap[\"\\\'][^>]*>.*?</script>', ''
 html = html.replace('<script src=\"/__sitecloner/runtime.js\"></script>', '')
 html = re.sub(r'<link[^>]+rel=[\"\\\']prefetch[\"\\\'][^>]+as=[\"\\\']script[\"\\\'][^>]*>', '', html, flags=re.I)
 html = html.replace('/textures/ldr_rgb1_0.png','/__sitecloner/pixel.svg').replace('/textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg')
+font_replacements = {
+    '400': '/fonts/FFF-AcidGrotesk-Regular.woff2',
+    '500': '/fonts/FFF-AcidGrotesk-Medium.woff2',
+    '700': '/fonts/FFF-AcidGrotesk-Bold.woff2',
+}
+def replace_embedded_font(match):
+    block = match.group(0)
+    wm = re.search(r'font-weight:\s*([^;]+)', block, flags=re.I)
+    weight = wm.group(1).strip() if wm else '400'
+    src = font_replacements.get(weight, font_replacements['400'])
+    return re.sub(r'url\([\"\']data:application/font-woff2[^)]*[\"\']\)', "url('" + src + "')", block, flags=re.I|re.S)
+html = re.sub(r'@font-face\s*\{[^}]*data:application/font-woff2[^}]*\}', replace_embedded_font, html, flags=re.I|re.S)
 hm = re.search(r'<head>(.*?)</head>', html, flags=re.I|re.S)
 if hm:
     formatted_head = re.sub(r'><', '>\n<', hm.group(1))
