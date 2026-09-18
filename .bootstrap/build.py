@@ -207,3 +207,5 @@ subprocess.run(['git','commit','-m','Restore localised Linearity capture'],check
 subprocess.run(['git','push','origin','HEAD:main'],check=True)
 
 # repaired seed trigger
+
+# full manifest repaired trigger
