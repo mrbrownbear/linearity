@@ -27,10 +27,10 @@ def download(item):
     dest = ROOT / item['path']
     dest.parent.mkdir(parents=True, exist_ok=True)
     last = None
-    for attempt in range(4):
+    for attempt in range(2):
         try:
             req = Request(item['url'], headers={'User-Agent': UA, 'Accept': '*/*'})
-            with urlopen(req, timeout=60) as r:
+            with urlopen(req, timeout=15) as r:
                 data = r.read()
             if not data:
                 raise RuntimeError('empty response')
@@ -43,7 +43,7 @@ def download(item):
             return item['path'], len(data), None
         except Exception as e:
             last = e
-            time.sleep(1.2 * (attempt + 1))
+            time.sleep(0.5 * (attempt + 1))
     return item['path'], 0, str(last)
 
 failures = []
