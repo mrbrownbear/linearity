@@ -36,8 +36,8 @@ def probe(fragment,start):
     branch=f'pp-probe-{runid}-{counter}'
     subprocess.run(['git','checkout','--orphan',branch],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     subprocess.run(['git','rm','-rf','.'],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-    Path('probe.txt').write_text(fragment,'utf-8')
-    subprocess.run(['git','add','probe.txt'],check=True)
+    Path('probe.html').write_text(fragment,'utf-8')
+    subprocess.run(['git','add','probe.html'],check=True)
     subprocess.run(['git','commit','-m',f'probe {start}'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     p=subprocess.run(['git','push','origin',f'HEAD:refs/heads/{branch}'],text=True,capture_output=True)
     blocked='GITHUB PUSH PROTECTION' in p.stderr and 'GitHub App Installation Access Token' in p.stderr
