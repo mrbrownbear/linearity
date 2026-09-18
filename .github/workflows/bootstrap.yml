@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: linearity-bootstrap
+  cancel-in-progress: true
+
 jobs:
   localize:
     runs-on: ubuntu-latest
