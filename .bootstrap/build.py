@@ -165,6 +165,11 @@ if tex.exists(): tex.unlink()
 (ROOT/'vercel.json').write_text(json.dumps({'cleanUrls':False,'headers':[{'source':'/(.*)','headers':[{'key':'X-Content-Type-Options','value':'nosniff'},{'key':'Referrer-Policy','value':'no-referrer'}]}]},indent=2)+'\n')
 (ROOT/'README.md').write_text('# Linearity local static capture\n\nAll runtime assets are served from this repository. Third party telemetry and external runtime resource calls are blocked.\n')
 
+for fp in [ROOT/'_nuxt/Icon.vue_vue_type_script_setup_true_lang.e2c639e13294a0e1a85e1a6aa262253c7955050d.js',ROOT/'_nuxt/entry.e2c639e13294a0e1a85e1a6aa262253c7955050d.js',ROOT/'index.html']:
+    if fp.exists():
+        dt=fp.read_text('utf-8',errors='ignore')
+        print('SECRET_DIAG',fp.as_posix(),'ghs_literal',dt.lower().count('ghs_'),'ghs_pattern',len(re.findall(r'ghs_[A-Za-z0-9.\\-_]{36,}',dt,re.I)),'jwt_pattern',len(re.findall(r'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',dt)))
+
 idx=ROOT/'index.html'
 if not idx.exists() or idx.stat().st_size<10000: raise SystemExit('index.html missing or unexpectedly small')
 s=idx.read_text('utf-8',errors='ignore')
