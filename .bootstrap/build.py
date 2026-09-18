@@ -143,6 +143,7 @@ for p in list(ROOT.rglob('*')):
     for prefix in ('ghs_','ghp_','gho_','ghu_','ghr_','github_pat_'):
         s=s.replace(prefix, 'github_token_removed_')
     s=re.sub(r'ghs', 'ghx', s, flags=re.I)
+    s=re.sub(r'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}', 'jwt_removed', s)
     s=s.replace('/textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg').replace('textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg')
     if p.name=='index.html':
         csp="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
