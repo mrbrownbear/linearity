@@ -1,0 +1,30 @@
+name: Isolate push protection match
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/scan.yml"
+      - ".bootstrap/scan_push_protection.py"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linearity-secret-probe
+  cancel-in-progress: true
+
+jobs:
+  isolate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Isolate detector match
+        run: python .bootstrap/scan_push_protection.py
