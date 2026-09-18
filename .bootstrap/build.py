@@ -84,55 +84,11 @@ sitecloner.mkdir(exist_ok=True)
 (sitecloner / 'blocked.json').write_text('{}\n','utf-8')
 (sitecloner / 'blank.html').write_text('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>\n','utf-8')
 (sitecloner / 'pixel.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>\n','utf-8')
-
-# Build a local-only runtime mapper from the exact capture manifest.
-mapping = {}
-for item in resources:
-    url = item.get('url')
-    path = item.get('path')
-    if url and path:
-        mapping[url] = '/' + path.lstrip('/')
-
-runtime = """(() => {
-const M = __MAP__;
-const BLOCK='/__sitecloner/blocked.json';
-function mapUrl(value){
-  if(!value || typeof value!=='string') return value;
-  if(value.startsWith('data:')||value.startsWith('blob:')||value.startsWith('#')) return value;
-  try{
-    const u=new URL(value,location.href);
-    const exact=M[u.href];
-    if(exact) return exact;
-    const noHash=u.origin+u.pathname+u.search;
-    if(M[noHash]) return M[noHash];
-    if(u.origin===location.origin) return u.pathname+u.search+u.hash;
-    return BLOCK;
-  }catch(e){return value}
-}
-const nativeFetch=window.fetch;
-window.fetch=function(input,init){
-  const raw=typeof input==='string'?input:(input&&input.url)||'';
-  const mapped=mapUrl(raw);
-  if(mapped===BLOCK) return Promise.resolve(new Response('{}',{status:200,headers:{'content-type':'application/json'}}));
-  if(typeof input==='string') return nativeFetch.call(this,mapped,init);
-  try{return nativeFetch.call(this,new Request(mapped,input),init)}catch(e){return nativeFetch.call(this,mapped,init)}
-};
-const xo=XMLHttpRequest.prototype.open;
-XMLHttpRequest.prototype.open=function(method,url,...rest){return xo.call(this,method,mapUrl(url),...rest)};
-const sa=Element.prototype.setAttribute;
-Element.prototype.setAttribute=function(name,value){
-  if(['src','href','poster','action'].includes(String(name).toLowerCase())) value=mapUrl(value);
-  return sa.call(this,name,value);
-};
-window.__LOCAL_CAPTURE_MAP__=M;
-})();"""
-runtime = runtime.replace('__MAP__', json.dumps(mapping, separators=(',', ':')))
-(sitecloner / 'runtime.js').write_text(runtime, 'utf-8')
-
-# Ensure local runtime is present even if the original clone omitted it.
-html = (ROOT / 'index.html').read_text('utf-8', errors='ignore')
-if '/__sitecloner/runtime.js' not in html:
-    html = html.replace('</head>', '<script src="/__sitecloner/runtime.js"></script></head>', 1)
+rt=sitecloner/'runtime.js'
+if rt.exists(): rt.unlink()
+for texname in ['textures/ldr_rgb1_0.png','textures/LDR_RGB1_0.png']:
+    tex=ROOT/texname
+    if tex.exists(): tex.unlink()
 
 # Strict local-only CSP. Navigation can remain internal but resource/network calls cannot leave origin.
 csp = "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
@@ -141,6 +97,10 @@ if 'Content-Security-Policy' not in html:
 
 # Strip tracking tags and any credential-like strings from public captured text.
 html = re.sub(r'<(?:script|iframe|img)[^>]+(?:googletagmanager|google-analytics|hotjar|hubspot|cookiebot|lemlist|clarity)[^>]*>(?:</script>)?', '', html, flags=re.I)
+html = re.sub(r'<script\\s+type=[\"\\\']importmap[\"\\\'][^>]*>.*?</script>', '', html, flags=re.I|re.S)
+html = html.replace('<script src=\"/__sitecloner/runtime.js\"></script>', '')
+html = re.sub(r'<link[^>]+rel=[\"\\\']prefetch[\"\\\'][^>]+as=[\"\\\']script[\"\\\'][^>]*>', '', html, flags=re.I)
+html = html.replace('/textures/ldr_rgb1_0.png','/__sitecloner/pixel.svg').replace('/textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg')
 (ROOT / 'index.html').write_text(html, 'utf-8')
 
 TEXT_EXT={'.html','.htm','.css','.js','.mjs','.json','.xml','.svg','.txt','.webmanifest','.map'}
