@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os,re,sys,hashlib,mimetypes,posixpath,json,time,subprocess,shutil
+import os,re,sys,hashlib,mimetypes,posixpath,json,time,subprocess,shutil,html as htmlmod
 from pathlib import Path
 from urllib.parse import urljoin,urlparse,urldefrag,quote,unquote
 from urllib.request import Request,urlopen
@@ -43,7 +43,7 @@ def fetch(url:str)->bytes:
 
 
 def absolutize(raw:str,base:str)->str|None:
-    raw=raw.strip().strip('"\'')
+    raw=htmlmod.unescape(raw.strip().strip('"\''))
     if not raw or raw.startswith(('data:','blob:','javascript:','mailto:','tel:','#')): return None
     if raw.startswith('//'): raw='https:'+raw
     url=urldefrag(urljoin(base,raw))[0]
@@ -140,6 +140,8 @@ for p in list(ROOT.rglob('*')):
         s=s.replace(u,v)
     s=s.replace('//www.linearity.io/','/').replace('//linearity.io/','/')
     s=re.sub(r'<(?:script|iframe|img)[^>]+(?:googletagmanager|google-analytics|hotjar|hubspot|cookiebot|lemlist|clarity)[^>]*>(?:</script>)?','',s,flags=re.I)
+    s=re.sub(r'gh[sopur]_[A-Za-z0-9_]{20,}', 'github_token_removed', s)
+    s=s.replace('/textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg').replace('textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg')
     if p.name=='index.html':
         csp="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
         if 'Content-Security-Policy' not in s:
@@ -149,6 +151,8 @@ for p in list(ROOT.rglob('*')):
     if s!=original: p.write_text(s,'utf-8')
 
 sc=ROOT/'__sitecloner'; sc.mkdir(exist_ok=True)
+tex=ROOT/'textures/LDR_RGB1_0.png'
+if tex.exists(): tex.unlink()
 (sc/'blocked.json').write_text('{}\n')
 (sc/'blocked.js').write_text('/* blocked */\n')
 (sc/'blocked.css').write_text('/* blocked */\n')
