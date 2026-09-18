@@ -172,7 +172,7 @@ html = idx.read_text("utf-8","ignore")
 
 # Restore the original import map before the Nuxt module entry.
 if not re.search(r'<script\s+type=["\']importmap["\']', html, flags=re.I):
-    entry = re.search(r'<script[^>]+src=["\']/_nuxt/entry\.[^"\']+["\'][^>]*></script>', html, flags=re.I)
+    entry = re.search(r'<script[^>]+src=["\']/_nuxt/entry\.[^"\']+["\'][^>]*>\s*</script>', html, flags=re.I)
     if not entry:
         raise SystemExit("Nuxt entry script not found")
     html = html[:entry.start()] + importmap_tag + '<script src="/__sitecloner/runtime.js"></script>' + html[entry.start():]
