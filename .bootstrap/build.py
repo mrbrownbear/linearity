@@ -91,10 +91,9 @@ for texname in ['textures/ldr_rgb1_0.png','textures/LDR_RGB1_0.png']:
     if tex.exists(): tex.unlink()
 
 html = (ROOT / 'index.html').read_text('utf-8', errors='ignore')
-# Strict local-only CSP. Navigation can remain internal but resource/network calls cannot leave origin.
+# Strict local-only CSP is sent as a Vercel response header.
 csp = "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
-if 'Content-Security-Policy' not in html:
-    html = html.replace('<head>', '<head><meta http-equiv="Content-Security-Policy" content="' + csp + '">', 1)
+html = re.sub(r'<meta[^>]+http-equiv=["\']Content-Security-Policy["\'][^>]*>', '', html, flags=re.I)
 
 # Strip tracking tags and any credential-like strings from public captured text.
 html = re.sub(r'<(?:script|iframe|img)[^>]+(?:googletagmanager|google-analytics|hotjar|hubspot|cookiebot|lemlist|clarity)[^>]*>(?:</script>)?', '', html, flags=re.I)
@@ -102,6 +101,10 @@ html = re.sub(r'<script\\s+type=[\"\\\']importmap[\"\\\'][^>]*>.*?</script>', ''
 html = html.replace('<script src=\"/__sitecloner/runtime.js\"></script>', '')
 html = re.sub(r'<link[^>]+rel=[\"\\\']prefetch[\"\\\'][^>]+as=[\"\\\']script[\"\\\'][^>]*>', '', html, flags=re.I)
 html = html.replace('/textures/ldr_rgb1_0.png','/__sitecloner/pixel.svg').replace('/textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg')
+hm = re.search(r'<head>(.*?)</head>', html, flags=re.I|re.S)
+if hm:
+    formatted_head = re.sub(r'><', '>\n<', hm.group(1))
+    html = html[:hm.start(1)] + formatted_head + html[hm.end(1):]
 (ROOT / 'index.html').write_text(html, 'utf-8')
 
 TEXT_EXT={'.html','.htm','.css','.js','.mjs','.json','.xml','.svg','.txt','.webmanifest','.map'}
@@ -138,7 +141,8 @@ for dst,src in copy_pairs.items():
   'headers': [{'source':'/(.*)','headers':[
     {'key':'X-Content-Type-Options','value':'nosniff'},
     {'key':'Referrer-Policy','value':'no-referrer'},
-    {'key':'Permissions-Policy','value':'camera=(), microphone=(), geolocation=()'}
+    {'key':'Permissions-Policy','value':'camera=(), microphone=(), geolocation=()'},
+    {'key':'Content-Security-Policy','value':csp}
   ]}]
 }, indent=2)+'\n','utf-8')
 (ROOT/'README.md').write_text('# Linearity local static capture\n\nRestored from the supplied capture. Runtime assets are served locally from this repository and outbound resource calls are blocked.\n','utf-8')
