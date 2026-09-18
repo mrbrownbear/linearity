@@ -140,7 +140,8 @@ for p in list(ROOT.rglob('*')):
         s=s.replace(u,v)
     s=s.replace('//www.linearity.io/','/').replace('//linearity.io/','/')
     s=re.sub(r'<(?:script|iframe|img)[^>]+(?:googletagmanager|google-analytics|hotjar|hubspot|cookiebot|lemlist|clarity)[^>]*>(?:</script>)?','',s,flags=re.I)
-    s=re.sub(r'gh[sopur]_[A-Za-z0-9_]{20,}', 'github_token_removed', s)
+    for prefix in ('ghs_','ghp_','gho_','ghu_','ghr_','github_pat_'):
+        s=s.replace(prefix, 'github_token_removed_')
     s=s.replace('/textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg').replace('textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg')
     if p.name=='index.html':
         csp="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
