@@ -98,13 +98,21 @@ save(ORIGIN,html)
 text_cache={ORIGIN:html}
 seen.add(ORIGIN)
 
+ASSET_EXT={'.js','.mjs','.css','.json','.png','.jpg','.jpeg','.webp','.gif','.svg','.ico','.woff','.woff2','.ttf','.otf','.mp4','.webm','.mov','.avif','.xml','.webmanifest','.map'}
+def should_fetch(u:str)->bool:
+    p=urlparse(u); host=(p.hostname or '').lower(); path=p.path or '/'
+    if host=='assets.linearity.io': return True
+    if host not in {'www.linearity.io','linearity.io'}: return False
+    if path.startswith(('/_nuxt/','/.netlify/images','/fonts/','/textures/','/images/','/assets/')): return True
+    return Path(path).suffix.lower() in ASSET_EXT
+
 for round_no in range(8):
     discovered=set()
     for base,data in list(text_cache.items()):
         try: text=data.decode('utf-8')
         except: continue
         for u in discover_text(text,base):
-            if u not in seen and not blocked(u) and (urlparse(u).hostname or '').lower() in ALLOWED_HOSTS:
+            if u not in seen and not blocked(u) and should_fetch(u):
                 discovered.add(u)
     if not discovered: break
     for u in discovered: seen.add(u)
