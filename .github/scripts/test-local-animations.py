@@ -8,7 +8,7 @@ async def main():
     failed=[]
     external=[]
     async with async_playwright() as p:
-        browser=await p.chromium.launch(headless=True)
+        browser=await p.chromium.launch(headless=True,args=["--enable-webgl","--ignore-gpu-blocklist","--use-gl=swiftshader"])
         page=await browser.new_page(viewport={"width":1440,"height":1000})
         await page.add_init_script("""
           window.__RAF_COUNT__=0;
@@ -27,13 +27,26 @@ async def main():
         response=await page.goto(LOCAL_PREFIX+"/",wait_until="domcontentloaded",timeout=90000)
         if not response or response.status>=400:
             raise RuntimeError(f"homepage status {response.status if response else 'none'}")
-        await page.wait_for_timeout(4500)
+        await page.wait_for_timeout(1200)
+        anim_before=await page.evaluate("""() => document.getAnimations().map((a,i)=>({i,t:Number(a.currentTime||0),state:a.playState}))""")
+        style_before=await page.evaluate("""() => [...document.querySelectorAll('body *')].slice(0,1200).map((el,i)=>{const s=getComputedStyle(el);return [i,s.transform,s.opacity]})""")
+        await page.wait_for_timeout(700)
+        anim_after=await page.evaluate("""() => document.getAnimations().map((a,i)=>({i,t:Number(a.currentTime||0),state:a.playState}))""")
+        advancing=sum(1 for a in anim_before for b in anim_after if a["i"]==b["i"] and b["t"]>a["t"]+20)
+
         height=await page.evaluate("document.documentElement.scrollHeight")
+        target=min(max(1400,height//5),5000)
+        await page.evaluate("(y)=>window.scrollTo(0,y)",target)
+        await page.wait_for_timeout(900)
+        style_after=await page.evaluate("""() => [...document.querySelectorAll('body *')].slice(0,1200).map((el,i)=>{const s=getComputedStyle(el);return [i,s.transform,s.opacity]})""")
+        before_map={x[0]:(x[1],x[2]) for x in style_before}
+        style_changes=sum(1 for x in style_after if x[0] in before_map and before_map[x[0]]!=(x[1],x[2]))
+
         limit=min(height,18000)
-        for y in range(0,limit,650):
+        for y in range(target,limit,650):
             await page.evaluate("(y)=>window.scrollTo(0,y)",y)
-            await page.wait_for_timeout(90)
-        await page.wait_for_timeout(1800)
+            await page.wait_for_timeout(80)
+        await page.wait_for_timeout(900)
         metrics=await page.evaluate("""() => ({
           title:document.title,
           height:document.documentElement.scrollHeight,
@@ -55,6 +68,8 @@ async def main():
     local_failed=[x for x in failed if x["url"].startswith(LOCAL_PREFIX)]
     result={
         "metrics":metrics,
+        "advancingAnimations":advancing,
+        "scrollStyleChanges":style_changes,
         "nuxtResources":len(perf),
         "pageErrors":page_errors,
         "fatalConsole":fatal_console,
@@ -64,10 +79,12 @@ async def main():
     print(json.dumps(result,indent=2))
     if not metrics["nuxt"] or not metrics["localRuntime"]:
         raise SystemExit("Nuxt/runtime bootstrap did not initialize")
-    if metrics["canvas"] < 1:
-        raise SystemExit("WebGL/animation canvas did not initialize")
-    if metrics["raf"] < 20:
-        raise SystemExit(f"Animation frame activity too low: {metrics['raf']}")
+    if metrics["webAnimations"] < 5:
+        raise SystemExit(f"Too few browser animations initialized: {metrics['webAnimations']}")
+    if advancing < 3:
+        raise SystemExit(f"Animations are not advancing: {advancing}")
+    if style_changes < 3:
+        raise SystemExit(f"Scroll did not trigger visible style changes: {style_changes}")
     if len(perf) < 20:
         raise SystemExit(f"Too few Nuxt modules loaded: {len(perf)}")
     if page_errors:
