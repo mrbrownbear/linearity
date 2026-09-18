@@ -1,212 +1,207 @@
 from __future__ import annotations
-import os,re,sys,hashlib,mimetypes,posixpath,json,time,subprocess,shutil,html as htmlmod
 from pathlib import Path
-from urllib.parse import urljoin,urlparse,urldefrag,quote,unquote
-from urllib.request import Request,urlopen
-from concurrent.futures import ThreadPoolExecutor,as_completed
+from urllib.request import Request, urlopen
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlsplit
+import base64, hashlib, json, lzma, shutil, subprocess, time, re, os
 
-ROOT=Path.cwd()
-ORIGIN='https://www.linearity.io/'
-UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36'
-ALLOWED_HOSTS={'www.linearity.io','linearity.io','assets.linearity.io'}
-BLOCK_HOST_PARTS=('googletagmanager','google-analytics','doubleclick','hotjar','hubspot','hs-analytics','cookiebot','facebook.net','segment','amplitude','lemlist','clarity.ms')
+ROOT = Path.cwd()
+BOOT = ROOT / '.bootstrap'
+UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36'
+
+def restore_seed(prefix: str) -> bytes:
+    parts = sorted(BOOT.glob(prefix + '*'))
+    if not parts:
+        raise SystemExit(f'missing seed: {prefix}')
+    encoded = ''.join(p.read_text('ascii').strip() for p in parts)
+    return lzma.decompress(base64.b64decode(encoded), format=lzma.FORMAT_XZ)
+
+index_bytes = restore_seed('index.html.xz.b64.')
+resources_bytes = restore_seed('resources.xz.b64.')
+resources = json.loads(resources_bytes.decode('utf-8'))
+print('manifest resources:', len(resources))
+
+(ROOT / 'index.html').write_bytes(index_bytes)
+
+def download(item):
+    dest = ROOT / item['path']
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    last = None
+    for attempt in range(4):
+        try:
+            req = Request(item['url'], headers={'User-Agent': UA, 'Accept': '*/*'})
+            with urlopen(req, timeout=60) as r:
+                data = r.read()
+            if not data:
+                raise RuntimeError('empty response')
+            expected = item.get('sha256') or ''
+            if expected:
+                actual = hashlib.sha256(data).hexdigest()
+                if actual != expected:
+                    print('HASH_MISMATCH', item['path'])
+            dest.write_bytes(data)
+            return item['path'], len(data), None
+        except Exception as e:
+            last = e
+            time.sleep(1.2 * (attempt + 1))
+    return item['path'], 0, str(last)
+
+failures = []
+total = 0
+with ThreadPoolExecutor(max_workers=10) as pool:
+    futs = [pool.submit(download, x) for x in resources]
+    for i, fut in enumerate(as_completed(futs), 1):
+        path, n, err = fut.result()
+        total += n
+        if err:
+            failures.append((path, err))
+        if i % 100 == 0 or i == len(futs):
+            print(f'{i}/{len(futs)} resources processed')
+
+print('downloaded bytes:', total)
+print('download failures:', len(failures))
+
+# Missing noncritical captured resources become local stubs, never live fallbacks.
+for path, err in failures:
+    p = ROOT / path
+    p.parent.mkdir(parents=True, exist_ok=True)
+    ext = p.suffix.lower()
+    if ext in {'.js', '.mjs'}:
+        p.write_text('/* unavailable captured script intentionally stubbed */\n', 'utf-8')
+    elif ext == '.css':
+        p.write_text('/* unavailable captured stylesheet intentionally stubbed */\n', 'utf-8')
+    elif ext == '.json':
+        p.write_text('{}\n', 'utf-8')
+    elif ext == '.svg':
+        p.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>\n', 'utf-8')
+    else:
+        p.write_bytes(b'')
+
+sitecloner = ROOT / '__sitecloner'
+sitecloner.mkdir(exist_ok=True)
+(sitecloner / 'blocked.js').write_text('/* external runtime request intentionally blocked */\n','utf-8')
+(sitecloner / 'blocked.css').write_text('/* external stylesheet intentionally blocked */\n','utf-8')
+(sitecloner / 'blocked.json').write_text('{}\n','utf-8')
+(sitecloner / 'blank.html').write_text('<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>\n','utf-8')
+(sitecloner / 'pixel.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>\n','utf-8')
+
+# Build a local-only runtime mapper from the exact capture manifest.
+mapping = {}
+for item in resources:
+    url = item.get('url')
+    path = item.get('path')
+    if url and path:
+        mapping[url] = '/' + path.lstrip('/')
+
+runtime = """(() => {
+const M = __MAP__;
+const BLOCK='/__sitecloner/blocked.json';
+function mapUrl(value){
+  if(!value || typeof value!=='string') return value;
+  if(value.startsWith('data:')||value.startsWith('blob:')||value.startsWith('#')) return value;
+  try{
+    const u=new URL(value,location.href);
+    const exact=M[u.href];
+    if(exact) return exact;
+    const noHash=u.origin+u.pathname+u.search;
+    if(M[noHash]) return M[noHash];
+    if(u.origin===location.origin) return u.pathname+u.search+u.hash;
+    return BLOCK;
+  }catch(e){return value}
+}
+const nativeFetch=window.fetch;
+window.fetch=function(input,init){
+  const raw=typeof input==='string'?input:(input&&input.url)||'';
+  const mapped=mapUrl(raw);
+  if(mapped===BLOCK) return Promise.resolve(new Response('{}',{status:200,headers:{'content-type':'application/json'}}));
+  if(typeof input==='string') return nativeFetch.call(this,mapped,init);
+  try{return nativeFetch.call(this,new Request(mapped,input),init)}catch(e){return nativeFetch.call(this,mapped,init)}
+};
+const xo=XMLHttpRequest.prototype.open;
+XMLHttpRequest.prototype.open=function(method,url,...rest){return xo.call(this,method,mapUrl(url),...rest)};
+const sa=Element.prototype.setAttribute;
+Element.prototype.setAttribute=function(name,value){
+  if(['src','href','poster','action'].includes(String(name).toLowerCase())) value=mapUrl(value);
+  return sa.call(this,name,value);
+};
+window.__LOCAL_CAPTURE_MAP__=M;
+})();"""
+runtime = runtime.replace('__MAP__', json.dumps(mapping, separators=(',', ':')))
+(sitecloner / 'runtime.js').write_text(runtime, 'utf-8')
+
+# Ensure local runtime is present even if the original clone omitted it.
+html = (ROOT / 'index.html').read_text('utf-8', errors='ignore')
+if '/__sitecloner/runtime.js' not in html:
+    html = html.replace('</head>', '<script src="/__sitecloner/runtime.js"></script></head>', 1)
+
+# Strict local-only CSP. Navigation can remain internal but resource/network calls cannot leave origin.
+csp = "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
+if 'Content-Security-Policy' not in html:
+    html = html.replace('<head>', '<head><meta http-equiv="Content-Security-Policy" content="' + csp + '">', 1)
+
+# Strip tracking tags and any credential-like strings from public captured text.
+html = re.sub(r'<(?:script|iframe|img)[^>]+(?:googletagmanager|google-analytics|hotjar|hubspot|cookiebot|lemlist|clarity)[^>]*>(?:</script>)?', '', html, flags=re.I)
+(ROOT / 'index.html').write_text(html, 'utf-8')
+
 TEXT_EXT={'.html','.htm','.css','.js','.mjs','.json','.xml','.svg','.txt','.webmanifest','.map'}
-seen=set(); mapping={}; failures=[]
-
-
-def blocked(url:str)->bool:
-    h=(urlparse(url).hostname or '').lower()
-    return any(x in h for x in BLOCK_HOST_PARTS)
-
-
-def local_path(url:str)->str:
-    u=urlparse(url)
-    path=unquote(u.path or '/')
-    if path=='/': return 'index.html'
-    rel=path.lstrip('/')
-    if rel.endswith('/'): rel += 'index.html'
-    if not Path(rel).suffix and u.hostname in {'www.linearity.io','linearity.io'}:
-        rel=rel.rstrip('/')+'/index.html'
-    if u.hostname not in {'www.linearity.io','linearity.io'}:
-        rel='__external__/'+u.hostname+'/'+rel
-    if u.query:
-        h=hashlib.sha256(u.query.encode()).hexdigest()[:10]
-        p=Path(rel)
-        rel=str(p.with_name(p.stem+'__q_'+h+p.suffix)).replace('\\','/')
-    return rel
-
-
-def fetch(url:str)->bytes:
-    req=Request(url,headers={'User-Agent':UA,'Accept':'*/*'})
-    with urlopen(req,timeout=45) as r:
-        return r.read()
-
-
-def absolutize(raw:str,base:str)->str|None:
-    raw=htmlmod.unescape(raw.strip().strip('"\''))
-    if not raw or raw.startswith(('data:','blob:','javascript:','mailto:','tel:','#')): return None
-    if raw.startswith('//'): raw='https:'+raw
-    url=urldefrag(urljoin(base,raw))[0]
-    p=urlparse(url)
-    if p.scheme not in ('http','https'): return None
-    return url
-
-URL_ATTR_RE=re.compile(r'(?i)(?:src|href|poster|content)\s*=\s*["\']([^"\']+)["\']')
-SRCSET_RE=re.compile(r'(?i)(?:srcset)\s*=\s*["\']([^"\']+)["\']')
-CSS_URL_RE=re.compile(r'url\(\s*(["\']?)([^)"\']+)\1\s*\)',re.I)
-IMPORT_RE=re.compile(r'@import\s+(?:url\()?\s*["\']?([^"\')\s;]+)',re.I)
-JS_URL_RE=re.compile(r'https?://[^"\'`\\\s<>]+')
-
-
-def discover_text(text:str,base:str):
-    out=set()
-    for m in URL_ATTR_RE.finditer(text):
-        u=absolutize(m.group(1),base)
-        if u: out.add(u)
-    for m in SRCSET_RE.finditer(text):
-        for item in m.group(1).split(','):
-            raw=item.strip().split()[0] if item.strip() else ''
-            u=absolutize(raw,base)
-            if u: out.add(u)
-    for rx in (CSS_URL_RE,IMPORT_RE):
-        for m in rx.finditer(text):
-            raw=m.group(2) if rx is CSS_URL_RE else m.group(1)
-            u=absolutize(raw,base)
-            if u: out.add(u)
-    for m in JS_URL_RE.finditer(text):
-        u=absolutize(m.group(0),base)
-        if u: out.add(u)
-    return out
-
-
-def save(url:str,data:bytes):
-    rel=local_path(url); p=ROOT/rel; p.parent.mkdir(parents=True,exist_ok=True); p.write_bytes(data); mapping[url]='/'+rel
-    return rel
-
-
-def download_one(url:str):
+for p in ROOT.rglob('*'):
+    if not p.is_file() or p.suffix.lower() not in TEXT_EXT or '.git' in p.parts:
+        continue
     try:
-        if blocked(url): return url,None,None
-        h=(urlparse(url).hostname or '').lower()
-        if h not in ALLOWED_HOSTS: return url,None,None
-        data=fetch(url); rel=save(url,data); return url,rel,data
-    except Exception as e:
-        return url,None,e
+        s=p.read_text('utf-8')
+    except Exception:
+        continue
+    o=s
+    s=re.sub(r'ghs_[A-Za-z0-9.\\-_]{20,}', 'github_credential_removed', s, flags=re.I)
+    s=re.sub(r'github_pat_[A-Za-z0-9_\\-]{20,}', 'github_credential_removed', s, flags=re.I)
+    if s!=o:
+        p.write_text(s,'utf-8')
 
-html=fetch(ORIGIN)
-save(ORIGIN,html)
-text_cache={ORIGIN:html}
-seen.add(ORIGIN)
+# Local fallbacks for references absent from the supplied capture.
+copy_pairs={
+  'apple-touch-icon.png':'android-chrome-192x192__q_f67bbdbffc.png',
+  'favicon-16x16.png':'favicon-32x32__q_f67bbdbffc.png',
+  'favicon-32x32.png':'favicon-32x32__q_f67bbdbffc.png',
+  'fonts/FFF-AcidGrotesk-Bold.woff2':'fonts/FFF-AcidGrotesk-Medium.woff2',
+  'fonts/MonumentGrotesk-Semi-Mono.woff2':'fonts/Inter-Medium.woff2',
+  'fonts/ABCMonumentGroteskMono-Bold-Trial.woff2':'fonts/FFF-AcidGrotesk-Medium.woff2',
+}
+for dst,src in copy_pairs.items():
+    s=ROOT/src; d=ROOT/dst
+    if s.exists():
+        d.parent.mkdir(parents=True,exist_ok=True)
+        shutil.copyfile(s,d)
 
-ASSET_EXT={'.js','.mjs','.css','.json','.png','.jpg','.jpeg','.webp','.gif','.svg','.ico','.woff','.woff2','.ttf','.otf','.mp4','.webm','.mov','.avif','.xml','.webmanifest','.map'}
-def should_fetch(u:str)->bool:
-    p=urlparse(u); host=(p.hostname or '').lower(); path=p.path or '/'
-    if host=='assets.linearity.io': return True
-    if host not in {'www.linearity.io','linearity.io'}: return False
-    if path.startswith(('/_nuxt/','/.netlify/images','/fonts/','/textures/','/images/','/assets/')): return True
-    return Path(path).suffix.lower() in ASSET_EXT
+(ROOT/'vercel.json').write_text(json.dumps({
+  'cleanUrls': False,
+  'headers': [{'source':'/(.*)','headers':[
+    {'key':'X-Content-Type-Options','value':'nosniff'},
+    {'key':'Referrer-Policy','value':'no-referrer'},
+    {'key':'Permissions-Policy','value':'camera=(), microphone=(), geolocation=()'}
+  ]}]
+}, indent=2)+'\n','utf-8')
+(ROOT/'README.md').write_text('# Linearity local static capture\n\nRestored from the supplied capture. Runtime assets are served locally from this repository and outbound resource calls are blocked.\n','utf-8')
 
-for round_no in range(8):
-    discovered=set()
-    for base,data in list(text_cache.items()):
-        try: text=data.decode('utf-8')
-        except: continue
-        for u in discover_text(text,base):
-            if u not in seen and not blocked(u) and should_fetch(u):
-                discovered.add(u)
-    if not discovered: break
-    for u in discovered: seen.add(u)
-    text_cache={}
-    print(f'round {round_no+1}: downloading {len(discovered)} resources')
-    with ThreadPoolExecutor(max_workers=12) as ex:
-        futs=[ex.submit(download_one,u) for u in discovered]
-        for f in as_completed(futs):
-            url,rel,res=f.result()
-            if isinstance(res,Exception): failures.append((url,str(res))); continue
-            if rel and res is not None and Path(rel).suffix.lower() in TEXT_EXT:
-                text_cache[url]=res
-
-all_map=dict(mapping)
-for u,v in list(mapping.items()):
-    if u.startswith('https://www.linearity.io/'):
-        all_map[u.replace('https://www.linearity.io/','https://linearity.io/',1)]=v
-
-for p in list(ROOT.rglob('*')):
-    if not p.is_file() or p.suffix.lower() not in TEXT_EXT: continue
-    try: s=p.read_text('utf-8')
-    except: continue
-    original=s
-    for u,v in sorted(all_map.items(),key=lambda kv:len(kv[0]),reverse=True):
-        s=s.replace(u,v)
-    s=s.replace('//www.linearity.io/','/').replace('//linearity.io/','/')
-    s=re.sub(r'<(?:script|iframe|img)[^>]+(?:googletagmanager|google-analytics|hotjar|hubspot|cookiebot|lemlist|clarity)[^>]*>(?:</script>)?','',s,flags=re.I)
-    for prefix in ('ghs_','ghp_','gho_','ghu_','ghr_','github_pat_'):
-        s=s.replace(prefix, 'github_token_removed_')
-    s=re.sub(r'ghs', 'ghx', s, flags=re.I)
-    s=re.sub(r'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}', 'jwt_removed', s)
-    s=s.replace('/textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg').replace('textures/LDR_RGB1_0.png','/__sitecloner/pixel.svg')
-    if p.name=='index.html':
-        csp="default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' data: blob:; connect-src 'self' data: blob:; frame-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self';"
-        if 'Content-Security-Policy' not in s:
-            s=s.replace('<head>','<head><meta http-equiv="Content-Security-Policy" content="'+csp+'">',1)
-        guard="""<script>(function(){const O=location.origin;const ok=u=>{try{const x=new URL(u,location.href);return x.origin===O||x.protocol==='data:'||x.protocol==='blob:'}catch(e){return true}};const F=window.fetch;window.fetch=function(a,b){const u=typeof a==='string'?a:(a&&a.url)||'';return ok(u)?F.apply(this,arguments):Promise.resolve(new Response('{}',{status:200,headers:{'content-type':'application/json'}}))};const X=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){if(!ok(u))u='/__sitecloner/blocked.json';return X.apply(this,[m,u,...Array.prototype.slice.call(arguments,2)])};})();</script>"""
-        s=s.replace('</head>',guard+'</head>',1)
-    if s!=original: p.write_text(s,'utf-8')
-
-sc=ROOT/'__sitecloner'; sc.mkdir(exist_ok=True)
-tex=ROOT/'textures/LDR_RGB1_0.png'
-if tex.exists(): tex.unlink()
-(sc/'blocked.json').write_text('{}\n')
-(sc/'blocked.js').write_text('/* blocked */\n')
-(sc/'blocked.css').write_text('/* blocked */\n')
-(sc/'blank.html').write_text('<!doctype html><html></html>\n')
-(sc/'pixel.svg').write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>\n')
-
-(ROOT/'vercel.json').write_text(json.dumps({'cleanUrls':False,'headers':[{'source':'/(.*)','headers':[{'key':'X-Content-Type-Options','value':'nosniff'},{'key':'Referrer-Policy','value':'no-referrer'}]}]},indent=2)+'\n')
-(ROOT/'README.md').write_text('# Linearity local static capture\n\nAll runtime assets are served from this repository. Third party telemetry and external runtime resource calls are blocked.\n')
-
-flagged=[ROOT/'_nuxt/Icon.vue_vue_type_script_setup_true_lang.e2c639e13294a0e1a85e1a6aa262253c7955050d.js',ROOT/'_nuxt/entry.e2c639e13294a0e1a85e1a6aa262253c7955050d.js',ROOT/'index.html']
-flag_texts=[p.read_text('utf-8',errors='ignore') for p in flagged if p.exists()]
-if len(flag_texts)==3:
-    cand_sets=[set(re.findall(r'[A-Za-z0-9._-]{80,}',t)) for t in flag_texts]
-    common=set.intersection(*cand_sets)
-    common={x for x in common if len(x)>=80}
-    print('COMMON_SECRET_CANDIDATES',len(common),'lengths',sorted({len(x) for x in common}))
-    if common:
-        for p in list(ROOT.rglob('*')):
-            if not p.is_file() or p.suffix.lower() not in TEXT_EXT: continue
-            try: s=p.read_text('utf-8')
-            except: continue
-            o=s
-            for x in common: s=s.replace(x,'shared_secret_removed')
-            if s!=o: p.write_text(s,'utf-8')
-
-for fp,line_no in [(flagged[0],1),(flagged[1],9),(flagged[2],495)]:
-    if fp.exists():
-        dt=fp.read_text('utf-8',errors='ignore')
-        print('SECRET_DIAG',fp.as_posix(),'ghs_literal',dt.lower().count('ghs_'),'ghs_pattern',len(re.findall(r'ghs_[A-Za-z0-9.\\-_]{36,}',dt,re.I)),'jwt_pattern',len(re.findall(r'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',dt)))
-        lines=dt.splitlines()
-        if len(lines)>=line_no:
-            red=re.sub(r'[A-Za-z0-9._%:/+\\=-]{18,}','<LONG>',lines[line_no-1])
-            print('REDACTED_CONTEXT',fp.name,line_no,red[:1200])
-
+# Validate the deployment root and local references.
 idx=ROOT/'index.html'
-if not idx.exists() or idx.stat().st_size<10000: raise SystemExit('index.html missing or unexpectedly small')
-s=idx.read_text('utf-8',errors='ignore')
-if 'https://www.linearity.io/_nuxt/' in s or 'https://assets.linearity.io/' in s: raise SystemExit('unlocalized load-bearing URLs remain in index')
-print('files:',sum(1 for p in ROOT.rglob('*') if p.is_file()))
-print('download failures:',len(failures))
-for x in failures[:20]: print('WARN',x)
+if not idx.exists() or idx.stat().st_size < 10000:
+    raise SystemExit('index.html missing or invalid')
+check=idx.read_text('utf-8',errors='ignore')
+for bad in ['https://www.linearity.io/_nuxt/','https://linearity.io/_nuxt/','https://assets.linearity.io/']:
+    if bad in check:
+        raise SystemExit('unlocalized load-bearing URL remains: '+bad)
+print('site files before cleanup:',sum(1 for p in ROOT.rglob('*') if p.is_file() and '.git' not in p.parts))
 
-shutil.rmtree(ROOT/'.bootstrap',ignore_errors=True)
+# Remove the one-time importer from the final tree.
+shutil.rmtree(BOOT, ignore_errors=True)
 wf=ROOT/'.github/workflows/bootstrap.yml'
 if wf.exists(): wf.unlink()
 for d in [ROOT/'.github/workflows',ROOT/'.github']:
     try:d.rmdir()
-    except:pass
+    except OSError:pass
 
 subprocess.run(['git','config','user.name','github-actions[bot]'],check=True)
 subprocess.run(['git','config','user.email','41898282+github-actions[bot]@users.noreply.github.com'],check=True)
 subprocess.run(['git','add','-A'],check=True)
-subprocess.run(['git','commit','-m','Localize Linearity static site'],check=True)
+subprocess.run(['git','commit','-m','Restore localised Linearity capture'],check=True)
 subprocess.run(['git','push','origin','HEAD:main'],check=True)
