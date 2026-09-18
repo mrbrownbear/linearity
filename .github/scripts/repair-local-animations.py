@@ -183,7 +183,7 @@ else:
 
 # Ensure runtime loads before Nuxt entry even if another old runtime tag exists elsewhere.
 html = re.sub(r'<script[^>]+src=["\']/__sitecloner/runtime\.js["\'][^>]*></script>', '', html, flags=re.I)
-entry = re.search(r'<script[^>]+src=["\']/_nuxt/entry\.[^"\']+["\'][^>]*></script>', html, flags=re.I)
+entry = re.search(r'<script[^>]+src=["\']/_nuxt/entry\.[^"\']+["\'][^>]*>\s*</script>', html, flags=re.I)
 if not entry:
     raise SystemExit("Nuxt entry script disappeared")
 html = html[:entry.start()] + '<script src="/__sitecloner/runtime.js"></script>' + html[entry.start():]
