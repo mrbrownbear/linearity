@@ -1,0 +1,1 @@
+/* external runtime request intentionally blocked */
