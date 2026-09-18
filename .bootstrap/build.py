@@ -181,10 +181,14 @@ if len(flag_texts)==3:
             for x in common: s=s.replace(x,'shared_secret_removed')
             if s!=o: p.write_text(s,'utf-8')
 
-for fp in flagged:
+for fp,line_no in [(flagged[0],1),(flagged[1],9),(flagged[2],495)]:
     if fp.exists():
         dt=fp.read_text('utf-8',errors='ignore')
         print('SECRET_DIAG',fp.as_posix(),'ghs_literal',dt.lower().count('ghs_'),'ghs_pattern',len(re.findall(r'ghs_[A-Za-z0-9.\\-_]{36,}',dt,re.I)),'jwt_pattern',len(re.findall(r'eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}',dt)))
+        lines=dt.splitlines()
+        if len(lines)>=line_no:
+            red=re.sub(r'[A-Za-z0-9._%:/+\\=-]{18,}','<LONG>',lines[line_no-1])
+            print('REDACTED_CONTEXT',fp.name,line_no,red[:1200])
 
 idx=ROOT/'index.html'
 if not idx.exists() or idx.stat().st_size<10000: raise SystemExit('index.html missing or unexpectedly small')
