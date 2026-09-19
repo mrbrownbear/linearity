@@ -1,0 +1,28 @@
+name: Probe original Nuxt CDN
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [restore-exact-nuxt]
+    paths:
+      - ".github/workflows/probe-nuxt.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Probe exact historical assets
+        run: |
+          set -e
+          for f in             "HomeHowItWorksKP.scss_vue_type_style_index_0_src_true_lang.96bbcec88aa7ef634a27b43d5b2c11d2d4b1e903.js"             "vue3-lottie.es.96bbcec88aa7ef634a27b43d5b2c11d2d4b1e903.js"             "ScrollTrigger.96bbcec88aa7ef634a27b43d5b2c11d2d4b1e903.js"; do
+            url="https://www.linearity.io/_nuxt/$f"
+            code=$(curl -L -sS -o "/tmp/$f" -w "%{http_code}" "$url" || true)
+            bytes=$(wc -c < "/tmp/$f" 2>/dev/null || echo 0)
+            sha=$(sha256sum "/tmp/$f" 2>/dev/null | cut -d' ' -f1 || true)
+            echo "$f HTTP=$code BYTES=$bytes SHA256=$sha"
+            head -c 80 "/tmp/$f" 2>/dev/null | tr '\n' ' '; echo
+          done
