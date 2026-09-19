@@ -1,0 +1,20 @@
+name: Audit homepage Nuxt stubs
+on:
+  workflow_dispatch:
+  push:
+    branches: [restore-exact-nuxt]
+    paths:
+      - ".github/workflows/audit-homepage-stubs.yml"
+      - ".github/scripts/audit-homepage-stubs.py"
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          python -m pip install playwright
+          python -m playwright install chromium
+      - run: python .github/scripts/audit-homepage-stubs.py
